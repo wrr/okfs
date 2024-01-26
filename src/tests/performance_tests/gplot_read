@@ -1,0 +1,6 @@
+set output "read.eps"
+set terminal postscript eps
+set xlabel "wielkosc bufora"
+set ylabel "czas odczytu [s]"
+plot 'read_okfs' title "OKFS" with points 4, 'read_linux' title "Linux" with points 1, 'read_okfs_localfs' title "OKFS LocalFS" with points 2
+

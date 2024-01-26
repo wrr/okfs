@@ -1,0 +1,10 @@
+#!/bin/sh
+posix=1;
+for cmd in echo chgrp chmod chown cut dd df expr ln ls mkdir mv rm read rmdir tee test touch wc; do
+	type $cmd >/dev/null 2>&1 || posix=0;
+done;
+if test $posix = 1; then
+	echo "ok stable";
+else
+	echo failed;
+fi;

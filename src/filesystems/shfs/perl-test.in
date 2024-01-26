@@ -1,0 +1,22 @@
+#!/bin/sh
+if type perl >/dev/null; then
+	perl <<-"EOF"
+		if ($] lt 5) {
+			print("failed\n");
+			exit(1);
+		}
+		eval "use Fcntl; use IO::File; use POSIX qw(mktime);";
+		if ($@) {
+			print("failed\n");
+			exit(1);
+		}
+		my $ouid = $>;
+
+		print("ok stable");
+		$>++;
+		print(" preserve") if ($ouid + 1 == $>);
+		print("\n");
+EOF
+else
+	echo failed;
+fi;

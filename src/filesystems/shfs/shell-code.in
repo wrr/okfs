@@ -1,0 +1,352 @@
+#!/bin/sh
+
+s_init() {
+	TZ=GMT; export TZ;
+	LC_ALL=POSIX; export LC_ALL;
+	
+	if test -z "$1"; then
+		s_ROOT="$HOME";
+	else
+		s_ROOT="$1";
+	fi
+
+	shift
+	if test "$1" = "stable"; then
+#	    s_STABLE="$L";
+	    s_STABLE="";
+	fi
+	
+	s_TMP="";
+	i=0;
+	while test $i -lt 10000; do
+		if mkdir /tmp/._shfs_.$i 2>/dev/null; then
+			s_TMP=/tmp/._shfs_.$i/;
+			break;
+		fi;
+		i=`expr $i + 1`;
+	done;
+
+	s_HEAD="";
+	if test "$s_TMP"; then
+		if echo "x" | head -c 1 >/dev/null 2>&1; then
+			s_HEAD=1;
+		fi
+	fi
+
+	s_READLINK="";
+	if type readlink >/dev/null 2>&1; then
+		s_READLINK=1;
+	fi
+
+	echo $s_COMPLETE;
+}
+
+s_finish () {
+	if test "$s_TMP"; then
+		rm -rf $s_TMP;
+	fi
+	echo $s_COMPLETE;
+}
+
+s_lsdir () {
+	if ls -lan$s_STABLE "$s_ROOT$1" 2>/dev/null; then
+		echo $s_COMPLETE;
+	elif test -d "$s_ROOT$1"; then
+# BB what is this for?
+		if ls "$s_ROOT$1" >/dev/null 2>&1; then
+			echo $s_COMPLETE;
+		else
+			echo $s_EPERM;
+		fi
+	else
+		echo $s_ENOENT;
+	fi;
+}
+
+s_stat () {
+# MacOS X ls returns 0 on non-existent file
+# in addition SunOS /bin/sh does not recognize test -e
+	if test -z "`ls -1d "$s_ROOT$1" 2>/dev/null`"; then
+	    echo $s_ENOENT;
+	elif ls -land$s_STABLE "$s_ROOT$1" 2>/dev/null; then
+		echo $s_COMPLETE;
+	else
+		echo $s_EPERM;
+	fi;
+}
+
+s_open () {
+	ok=0;
+	if test x$2 = xR -o x$2 = xRW; then
+		if test -r "$s_ROOT$1"; then
+			ok=1;
+		fi
+	fi;
+	if test x$2 = xW -o x$2 = xRW; then
+		if test -w "$s_ROOT$1"; then
+			ok=1;
+		else
+			ok=0;
+		fi
+	fi;
+	if test $ok = 1; then
+		if test -s "$s_ROOT$1"; then
+			echo $s_COMPLETE;
+		elif test `dd if="$s_ROOT$1" bs=1 count=1 2>/dev/null|wc -c` -eq 0; then
+			echo $s_COMPLETE;
+		else 
+			echo $s_NOTEMPTY;
+		fi
+	elif test -f "$s_ROOT$1"; then
+		echo $s_EPERM;
+	else
+		echo $s_ENOENT;
+	fi
+}
+
+# simple read, KISS to maximize performance
+s_read () {
+	if test "$3" = 0; then
+		if test -r "$s_ROOT$1"; then
+			echo $s_PRELIM; echo $s_COMPLETE;
+		else
+			echo $s_EPERM;
+		fi
+	fi
+	echo $s_PRELIM;
+	( dd if="$s_ROOT$1" bs=$4 skip=$5 count=$6 conv=sync 2>&1 1>&3 | grep "$6+0" >/dev/null || dd if=/dev/zero bs=$4 count=$6 conv=sync 2>&1 1>&3 | grep "$6+0" >/dev/null ) 3>&1;
+	echo $s_COMPLETE;
+}
+
+# report read size before reading
+s_sread () {
+	if test -z "$s_TMP"; then
+		return $s_EPERM;
+	elif test "$3" = 0; then
+		if test -r "$s_ROOT$1"; then
+			echo $s_PRELIM; echo $s_COMPLETE;
+		else
+			echo $s_EPERM;
+		fi
+	elif >"$s_TMP._shfs_$$_$7" 2>/dev/null; then
+		if x=`dd if="$s_ROOT$1" bs=$4 skip=$5 count=$6 2>/dev/null|tee "$s_TMP._shfs_$$_$7"|wc -c`; then
+			echo $s_PRELIM;
+			echo $x;
+			cat "$s_TMP._shfs_$$_$7" 2>/dev/null;
+			echo $s_COMPLETE;
+		elif test -f "$s_ROOT$1"; then
+			echo $s_EPERM;
+		else
+			echo $s_ENOENT;
+		fi
+		rm -f "$s_TMP._shfs_$$_$7";
+	elif test -f "$s_ROOT$1"; then
+		echo $s_EPERM;
+	else
+		echo $s_ENOENT;
+	fi
+}
+
+# we can use head for write
+s_write () {
+	if test "$s_HEAD" && >"$s_TMP._shfs_$$_$6" 2>/dev/null; then
+		echo $s_PRELIM;
+		if test "$s_HEAD"; then
+			head -c $3 >"$s_TMP._shfs_$$_$6" 2>/dev/null;
+			result=$?;
+		fi
+		if test $result -eq 0; then
+			if dd if="$s_TMP._shfs_$$_$6" of="$s_ROOT$1" bs=$4 seek=$5 conv=notrunc 2>/dev/null; then
+				echo $s_COMPLETE;
+			elif test -w "$s_ROOT$1"; then
+				echo $s_ENOSPC;
+			else
+				echo $s_EPERM;
+			fi
+		else
+			echo $s_ENOSPC; dd of=/dev/null bs=1 count=$3 2>/dev/null;
+		fi
+		rm -f "$s_TMP._shfs_$$_$6" 2>/dev/null;
+	elif test -w "$s_ROOT$1"; then
+		echo $s_PRELIM;
+		if test "$3" = 0; then
+			echo $s_COMPLETE;
+		elif dd of="$s_ROOT$1" bs=1 seek=$2 count=$3 conv=notrunc 2>/dev/null; then
+			echo $s_COMPLETE;
+		else
+			echo $s_ENOSPC; dd of=/dev/null bs=1 count=$3 2>/dev/null;
+		fi
+	fi
+}
+
+s_mkdir () {
+	if mkdir "$s_ROOT$1" 2>/dev/null; then
+		echo $s_COMPLETE;
+	else
+		echo $s_EPERM;
+	fi
+}
+
+s_rmdir () {
+	if test -d "$s_ROOT$1"; then
+		if rmdir "$s_ROOT$1" 2>/dev/null; then
+			echo $s_COMPLETE;
+		else
+			echo $s_EPERM;
+		fi
+	else
+		echo $_ENOENT;
+	fi
+}
+
+s_mv () {
+	if mv -f "$s_ROOT$1" "$s_ROOT$2" 2>/dev/null; then
+		echo $s_COMPLETE;
+	elif test -f "$s_ROOT$1"; then
+		echo $s_EPERM;
+	else
+		echo $s_ENOENT;
+	fi
+}
+
+s_rm () {
+	if rm -f "$s_ROOT$1" 2>/dev/null; then
+		echo $s_COMPLETE;
+	elif test -f "$s_ROOT$1"; then
+		echo $s_EPERM;
+	else
+		echo $s_ENOENT;
+	fi
+}
+
+s_creat () {
+        if ( >"$s_ROOT$1"; chmod $2 "$s_ROOT$1" ) 2>/dev/null; then
+	        echo $s_COMPLETE;
+	else
+		echo $s_EPERM;
+	fi
+}
+
+s_ln () {
+        if ln -f "$s_ROOT$1" "$s_ROOT$2" 2>/dev/null; then
+		echo $s_COMPLETE;
+	else
+		echo $s_EPERM;
+	fi
+}
+
+s_sln () {
+	if ln -s -f "$1" "$s_ROOT$2" 2>/dev/null; then
+		echo $s_COMPLETE;
+	else
+		echo $s_EPERM;
+	fi
+}
+
+s_readlink () {
+	if test "$s_READLINK"; then
+		if readlink "$s_ROOT$1" 2>/dev/null; then
+			echo $s_COMPLETE;
+		else
+			echo $s_EPERM;
+		fi
+	else
+		if ls -ld "$s_ROOT$1" 2>/dev/null|sed "s/.*-> \(.*\)/\1/" 2>/dev/null; then
+			echo $s_COMPLETE;
+		else
+			echo $s_EPERM;
+		fi
+	fi
+}
+
+s_chmod () {
+	if chmod $2 "$s_ROOT$1" 2>/dev/null; then
+		echo $s_COMPLETE;
+	elif test -f "$s_ROOT$1"; then
+		echo $s_EPERM;
+	else
+		echo $s_ENOENT;
+	fi
+}
+
+s_chown () {
+	if chown $2 "$s_ROOT$1" 2>/dev/null; then
+		echo $s_COMPLETE;
+	elif test -f "$s_ROOT$1"; then
+		echo $s_EPERM;
+	else
+		echo $s_ENOENT;
+	fi
+}
+
+s_chgrp () {
+	if chgrp $2 "$s_ROOT$1" 2>/dev/null; then
+		echo $s_COMPLETE;
+	elif test -f "$s_ROOT$1"; then
+		echo $s_EPERM;
+	else
+		echo $s_ENOENT;
+	fi
+}
+
+# some dd implementations do not like count=0
+s_trunc () {
+	if test "$3" = 0; then
+		if ( >"$s_ROOT$1" ) 2>/dev/null; then
+			echo $s_COMPLETE;
+		elif test -f "$s_ROOT$1"; then
+			echo $s_EPERM;
+		else
+			echo $s_ENOENT;
+		fi
+	elif dd if=/dev/zero of="$s_ROOT$1" bs=$2 seek=$3 count=0 2>/dev/null; then
+		echo $s_COMPLETE;
+	elif test -f "$s_ROOT$1"; then
+		echo $s_EPERM;
+	else
+		echo $s_ENOENT;
+	fi
+}
+
+s_settime () {
+	if test -e "$s_ROOT$1"; then
+		if TZ=UTC touch -$2 -t $3 "$s_ROOT$1" 2>/dev/null; then
+			echo $s_COMPLETE;
+		else
+			echo $s_EPERM;
+		fi
+	else
+		echo $s_ENOENT;
+	fi
+}
+
+# returns "total avail" 1024 blocks
+s_statfs () {
+	LC_ALL=POSIX df -k "$s_ROOT" 2>/dev/null | (
+		xa=0; xb=0; xc=0;
+		while read x a b c z; do
+			xa=$a; xb=$b; xc=$c;
+		done;
+		echo $xa $xb $xc
+	);
+	echo $s_COMPLETE;
+}
+
+s_ping () {
+	echo $s_PRELIM;
+	echo $1;
+	echo $s_NOP;
+}
+
+s_PRELIM="### 100";
+s_COMPLETE="### 200";
+s_NOP="### 201";
+s_NOTEMPTY="### 202";
+s_CONTINUE="### 300";
+s_TRANSIENT="### 400";
+s_ERROR="### 500";
+s_EPERM="### 501";
+s_ENOSPC="### 502";
+s_ENOENT="### 503";
+
+echo $s_COMPLETE;

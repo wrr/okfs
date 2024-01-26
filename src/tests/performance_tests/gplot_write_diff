@@ -1,0 +1,6 @@
+set output "write_diff.eps"
+set terminal postscript eps
+set xlabel "wielkosc bufora"
+set ylabel "roznica czasow zapisu [s]"
+plot 'write_diff' title "czas OKFS - czas Linux"
+

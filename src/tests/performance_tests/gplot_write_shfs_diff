@@ -1,0 +1,6 @@
+set output "write_shfs_diff.eps"
+set terminal postscript eps
+set xlabel "wielkosc bufora"
+set ylabel "stosunek czasow zapisu"
+plot 'write_shfs_diff' title "czas SHFS / czas LocalFS"
+

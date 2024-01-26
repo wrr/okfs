@@ -1,0 +1,14 @@
+Tests here are checking correct behavior of programs running under the control
+of OKFS. 
+
+Files:
+	testall.sh - script that runs all tests, and checks if they 
+	succeed.
+	
+	*_test - Tests of general system calls like fork, wait etc.
+	*_fs_test - Tests of filesystem calls, executed with ./localfs_test_dir
+	mounted to /etc using localfs.
+
+Coding convention:
+	Successful test should exit without writing anything to stdin or 
+stderr, otherwise it counts as failed.

@@ -1,0 +1,11 @@
+
+To compile OKFS you need to have source code of Linux kernel you are using,
+because OKFS uses definitions from kernel headers.
+As for now OKFS works only on 2.6.* kernels and it was tested only on
+ 2.6.8 and 2.6.10.
+
+1. Go to src dir
+2. Change first line in Makefile (KERNEL_SOURCES=/usr/src/linux definition)
+   to point to your kernel sources.
+3. type 'make'
+4. If compilation was successful run 'make check' to perform some testing.

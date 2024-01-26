@@ -1,0 +1,5 @@
+#/bin/bash
+killall -SIGINT okfs;
+sleep 1;
+sleep 1;
+echo "error: okfs killed but slave is still working";

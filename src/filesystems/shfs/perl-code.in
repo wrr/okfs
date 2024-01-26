@@ -1,0 +1,547 @@
+#!/usr/bin/perl -w
+
+use POSIX qw(mktime);
+use Fcntl;
+use IO::File;
+
+my $ROOT;
+my ($PRELIM) = ("### 100\n");
+my ($COMPLETE, $NOP, $NOTEMPTY) = ("### 200\n", "### 201\n", "### 202\n");
+my ($CONTINUE, $TRANSIENT) = ("### 300\n", "### 400\n");
+my ($ERROR, $EPERM, $ENOSPC, $ENOENT) = ("### 500\n", "### 501\n", "### 502\n", "### 503\n");
+my $STABLE = "";
+my $PRESERVE = 0;
+
+sub s_init()
+{
+	my $args = $_[0];
+	my $s;
+
+	$ENV{'TZ'} = 'GMT';
+	$ENV{'LC_ALL'} = 'POSIX';
+
+	$s = shift @$args;
+	if ($s eq '') {
+		$ROOT = $ENV{'HOME'};
+	} else {
+		$ROOT = "$s";
+	}
+
+	while (($s = shift @$args)) {
+		if ($s eq "stable") {
+		        $STABLE = "";
+#		        $STABLE = "L";
+		} elsif ($s eq "preserve") {
+			$PRESERVE = 1;
+		}
+	}
+
+	print($COMPLETE);
+}
+
+sub s_finish()
+{
+	print($COMPLETE);
+}
+
+sub s_lsdir()
+{
+	my $args = $_[0];
+	my $dir = $$args[0];
+	my $result;
+
+	if (not -d "$ROOT$dir") {
+		print($ENOENT);
+		return;
+	}
+	if (system("ls", "-lan$STABLE", "$ROOT$dir") != 0) {
+		print($EPERM);
+		return;
+	}
+	print($COMPLETE);
+}
+
+sub s_stat()
+{
+	my $args = $_[0];
+	my $dir = $$args[0];
+	my $result;
+
+# MacOS X ls returns 0 on non-existent file
+	if ((not -e "$ROOT$dir") && (not -l "$ROOT$dir")) {
+		print($ENOENT);
+		return;
+	}
+	if (system("ls", "-land$STABLE", "$ROOT$dir") != 0) {
+	    print($EPERM);
+	    return;
+	}
+	print($COMPLETE);
+}
+
+sub s_open()
+{
+	my $args = $_[0];
+	my ($file, $mode) = ($$args[0], $$args[1]);
+	my $openmode = 0;
+	my ($data, $result);
+
+	$openmode = O_RDONLY if ($mode eq "R");
+	$openmode = O_WRONLY if ($mode eq "W");
+	$openmode = O_RDWR if ($mode eq "RW");
+
+	if (not sysopen(FD, "$ROOT$file", $openmode)) {
+		if (-e "$ROOT$file") {
+			print($EPERM);
+		} else {
+			print($ENOENT);
+		}
+		return;
+	}
+	if (-s "$ROOT$file") {
+		print($COMPLETE);
+		close FD;
+		return;
+	}
+	if (sysread(FD, $data, 1) == 1) {
+		print($NOTEMPTY);
+	} else {
+		print($COMPLETE);
+	}
+	close FD;
+}
+
+sub s_read()
+{
+	my $args = $_[0];
+	my ($file, $off, $size) = ($$args[0], $$args[1], $$args[2]);
+	my ($result, $data, $o, $s);
+
+	if (not sysopen(FD, "$ROOT$file", O_RDONLY)) {
+		if (-e "$ROOT$file") {
+			print($EPERM);
+		} else {
+			print($COMPLETE);
+		}
+		return;
+	}
+	sysseek(FD, $off, 0);
+	$o = 0; $s = $size;
+	$result = sysread(FD, $data, $size, 0);
+	while (defined $result and $result > 0) {
+		$o += $result; $s -= $result;
+		$result = sysread(FD, $data, $s, $o);
+	}
+	close FD;
+	if (defined $result) {
+select STDOUT; $| = 0;
+		print($PRELIM);
+		print("$data"."\000"x($size-$o));
+select STDOUT; $| = 1;
+		print($COMPLETE);
+	} else {
+		print($ERROR);
+	}
+}
+
+sub s_sread()
+{
+	my $args = $_[0];
+	my ($file, $off, $size) = ($$args[0], $$args[1], $$args[2]);
+	my ($result, $data, $o, $s);
+
+	if (not sysopen(FD, "$ROOT$file", O_RDONLY)) {
+		if (-e "$ROOT$file") {
+			print($EPERM);
+		} else {
+			print($COMPLETE);
+		}
+		return;
+	}
+	sysseek(FD, $off, 0);
+	$o = 0; $s = $size;
+	$result = sysread(FD, $data, $size, 0);
+	while (defined $result and $result > 0) {
+		$o += $result; $s -= $result;
+		$result = sysread(FD, $data, $s, $o);
+	}
+	close FD;
+	if (defined $result) {
+		print($PRELIM);
+		print("$o");
+		print("$data");
+		print($COMPLETE);
+	} else {
+		print($ERROR);
+	}
+}
+
+sub s_write()
+{
+	my $args = $_[0];
+	my ($file, $off, $size) = ($$args[0], $$args[1], $$args[2]);
+	my ($result, $data, $o, $s);
+
+	if (not sysopen(FD, "$ROOT$file", O_WRONLY)) {
+		if (-e "$ROOT$file") {
+			print($EPERM);
+		} else {
+			print($COMPLETE);
+		}
+		return;
+	}
+	sysseek(FD, $off, 0);
+	print($PRELIM);
+
+	$o = 0; $s = $size;
+	$result = sysread(STDIN, $data, $size);
+	while (defined $result and $result > 0) {
+		$o += $result; $s -= $result;
+		$result = sysread(STDIN, $data, $s, $o);
+	}
+	if (not defined $result) {
+		print($ERROR);
+		close FD;
+		return;
+	}
+	
+	$o = 0; $s = $size;
+	$result = syswrite(FD, $data, $size, 0);
+	while (defined $result and $result > 0 and $o+$result < $size) {
+		$o += $result; $s -= $result;
+		$result = syswrite(FD, $data, $s, $o);
+	}
+	close FD;
+	if (defined $result) {
+		print($COMPLETE);
+	} else {
+		print($ERROR);
+	}
+}
+
+sub s_mkdir()
+{
+	my $args = $_[0];
+	my $dir = $$args[0];
+
+	if (mkdir("$ROOT$dir", 0777)) {
+	        print($COMPLETE);
+	} else {
+		print($EPERM);
+	}
+}
+
+sub s_rmdir()
+{
+	my $args = $_[0];
+	my $dir = $$args[0];
+
+	if (not -d "$ROOT$dir") {
+		print($ENOENT);
+		return;
+	}
+	if (rmdir("$ROOT$dir")) {
+		print($COMPLETE);
+	} else {
+		print($EPERM);
+	}
+}
+
+sub s_mv()
+{
+	my $args = $_[0];
+	my ($file1, $file2) = ($$args[0], $$args[1]);
+
+	if (rename("$ROOT$file1", "$ROOT$file2")) {
+		print($COMPLETE);
+	} elsif (-e "$ROOT$file1") {
+		print($EPERM);
+	} else {
+		print($ENOENT);
+	}
+}
+
+sub s_rm()
+{
+	my $args = $_[0];
+	my $file = $$args[0];
+
+	if (unlink("$ROOT$file")) {
+		print($COMPLETE);
+	} elsif (-e "$ROOT$file") {
+		print($EPERM);
+	} else {
+		print($ENOENT);
+	}
+}
+
+sub s_creat()
+{
+	my $args = $_[0];
+	my ($file, $mode) = ($$args[0], $$args[1]);
+	
+	if (sysopen(FD, "$ROOT$file", O_RDWR|O_TRUNC|O_CREAT, oct($mode))) {
+		close FD;
+		print($COMPLETE);
+	} else {
+		print($EPERM);
+	}
+}
+
+sub s_ln()
+{
+	my $args = $_[0];
+	my ($file1, $file2) = ($$args[0], $$args[1]);
+	
+	if (link("$ROOT$file1", "$ROOT$file2")) {
+		print($COMPLETE);
+	} else {
+		print($EPERM);
+	}
+}
+
+sub s_sln()
+{
+	my $args = $_[0];
+	my ($file1, $file2) = ($$args[0], $$args[1]);
+	
+	if (symlink("$file1", "$ROOT$file2")) {
+		print($COMPLETE);
+	} else {
+		print($EPERM);
+	}
+}
+
+sub s_readlink()
+{
+	my $args = $_[0];
+	my $file = $$args[0];
+	my $result;
+
+	if ($result = readlink("$ROOT$file")) {
+		print("$result\n");
+		print($COMPLETE);
+	} else {
+		print($EPERM);
+	}
+}
+
+sub s_chmod()
+{
+	my $args = $_[0];
+	my ($file, $mode) = ($$args[0], $$args[1]);
+	
+	if (chmod(oct($mode), "$ROOT$file")) {
+		print($COMPLETE);
+	} else {
+		print($EPERM);
+	}
+}
+
+sub s_chown()
+{
+	my $args = $_[0];
+	my ($file, $user) = ($$args[0], $$args[1]);
+	
+	if (chown($user, -1, "$ROOT$file")) {
+		print($COMPLETE);
+	} else {
+		print($EPERM);
+	}
+}
+
+sub s_chgrp()
+{
+	my $args = $_[0];
+	my ($file, $group) = ($$args[0], $$args[1]);
+	
+	if (chown(-1, $group, "$ROOT$file")) {
+		print($COMPLETE);
+	} else {
+		print($EPERM);
+	}
+}
+
+sub s_trunc()
+{
+	my $args = $_[0];
+	my ($file, $size) = ($$args[0], $$args[1]);
+
+	if (truncate("$ROOT$file", $size)) {
+		print($COMPLETE);
+	} else {
+		print($EPERM);
+	}
+}
+
+sub s_settime()
+{
+	my $args = $_[0];
+	my ($file, $type, $time) = ($$args[0], $$args[1], $$args[2]);
+	my ($atime, $mtime, $sec);
+
+	$time =~ /(.{4})(..)(..)(..)(..)\.(..)/;
+	$sec = mktime($6, $5, $4, $3, $2-1, $1-1900);
+	$mtime = $atime = $sec;
+	if ($type eq "a" or "$type" eq "m") {
+		my @attr = stat("$ROOT$file");
+		$mtime = $attr[9] if ($type eq "a");
+		$atime = $attr[8] if ($type eq "m");
+	}
+
+	if (utime($atime, $mtime, "$ROOT$file")) {
+		print($COMPLETE);
+	} else {
+		print($EPERM);
+	}
+}
+
+sub s_statfs()
+{
+	my ($result, $line, $last, @list);
+
+	$result = "0 0 0";
+	if (open(FD, "LC_ALL=POSIX df -k $ROOT 2>/dev/null|")) {
+		$last = "";
+		while ($line = <FD>) {
+			$last = $line;
+		}
+		close FD;
+		chomp($last);
+		@list = split(/ +/, $last);
+		$result = "$list[1] $list[2] $list[3]";
+	}
+	print("$result\n");
+	print($COMPLETE);
+}
+
+sub s_ping()
+{
+	my $args = $_[0];
+	my $seq = $$args[0];
+	
+	print($PRELIM);
+	print $seq."\n";
+	print($NOP);
+}
+
+sub getline()
+{
+	my @args;
+	my ($i, $c, $str, $state);
+
+	$state = 0; $i = 0; $str = "";
+	$c = getc(STDIN);
+	while (1) {
+		if (not defined $c) {
+			return @args if (@args);
+			exit(0);
+		}
+		if ($state == 0) {
+#			print "state: 0";
+			if ($c eq "\n") { return @args; }
+			elsif ($c eq "'") { $state = 2; }
+			elsif ($c ne " ") { $str = $c; $state = 1; }
+		} elsif ($state == 1) {
+#			print "state: 1";
+			if ($c eq "\n") { $args[$i] = $str; return @args; }
+			elsif ($c eq " ") { $args[$i++] = $str; $str = ""; $state = 0; }
+			else { $str = $str.$c; }
+		} elsif ($state == 2) {
+#			print "state: 2";
+			if ($c eq "'") { $state = 3; }
+			else { $str = $str.$c; }
+		} elsif ($state == 3) {
+#			print "state: 3";
+			if ($c eq "\n") { $args[$i] = $str; return @args; }
+			elsif ($c eq " ") { $args[$i++] = $str; $str = ""; $state = 0; }
+			elsif ($c eq "'") { $state = 2; }
+			elsif ($c eq "\\") { $state = 4; }
+		} elsif ($state == 4) {
+#			print "state: 4";
+			if ($c eq "\n") { $args[$i] = $str; return @args; }
+			elsif ($c eq " ") { $args[$i++] = $str; $str = ""; $state = 0; }
+			elsif ($c eq "'") { $str = $str.$c; $state = 0; }
+		}
+#		print ", char: $c\n";
+		$c = getc(STDIN);
+	}
+	return @args;
+}
+
+my $old_groups = "";
+
+select STDOUT; $| = 1;
+open(STDERR, ">/dev/null");
+print($COMPLETE);
+
+while (1) {
+	my @args = &getline();
+	my ($cmd, $uid, $groups);
+
+	next if (not @args);
+	$cmd = shift @args;
+
+	if ($PRESERVE) {
+		$uid = shift @args;
+		$groups = shift @args;
+
+		if ($groups ne $old_groups) {
+		        if (index($groups, " ") == -1) {
+				$groups = "$groups $groups";
+			}
+			$> = 0;
+			$) = $old_groups = $groups;
+		}
+		$> = $uid if ($uid != $>);
+	}
+	if ($cmd eq "s_init") {
+		&s_init(\@args);
+	} elsif ($cmd eq "s_finish") {
+		&s_finish(\@args);
+	} elsif ($cmd eq "s_lsdir") {
+		&s_lsdir(\@args);
+	} elsif ($cmd eq "s_stat") {
+		&s_stat(\@args);
+	} elsif ($cmd eq "s_open") {
+		&s_open(\@args);
+	} elsif ($cmd eq "s_read") {
+		&s_read(\@args);
+	} elsif ($cmd eq "s_sread") {
+		&s_sread(\@args);
+	} elsif ($cmd eq "s_write") {
+		&s_write(\@args);
+	} elsif ($cmd eq "s_mkdir") {
+		&s_mkdir(\@args);
+	} elsif ($cmd eq "s_rmdir") {
+		&s_rmdir(\@args);
+	} elsif ($cmd eq "s_mv") {
+		&s_mv(\@args);
+	} elsif ($cmd eq "s_rm") {
+		&s_rm(\@args);
+	} elsif ($cmd eq "s_creat") {
+		&s_creat(\@args);
+	} elsif ($cmd eq "s_ln") {
+		&s_ln(\@args);
+	} elsif ($cmd eq "s_sln") {
+		&s_sln(\@args);
+	} elsif ($cmd eq "s_readlink") {
+		&s_readlink(\@args);
+	} elsif ($cmd eq "s_chmod") {
+		&s_chmod(\@args);
+	} elsif ($cmd eq "s_chown") {
+		&s_chown(\@args);
+	} elsif ($cmd eq "s_chgrp") {
+		&s_chgrp(\@args);
+	} elsif ($cmd eq "s_trunc") {
+		&s_trunc(\@args);
+	} elsif ($cmd eq "s_settime") {
+		&s_settime(\@args);
+	} elsif ($cmd eq "s_statfs") {
+		&s_statfs(\@args);
+	} elsif ($cmd eq "s_ping") {
+		&s_ping(\@args);
+	} else {
+		print($ERROR);
+	}
+}

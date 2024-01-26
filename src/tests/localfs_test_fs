@@ -1,0 +1,31 @@
+#!/bin/sh
+#if localfs is corectly mounted to /etc this calls should success:
+
+mkdir ./localfs_test_dir/hmmmm
+rm -rf ./localfs_test_dir/hmmmm
+
+cp /etc/test_file ./test_file;
+diff /etc/test_file ./test_file;
+rm ./test_file;
+
+ls -al /etc >/dev/null;
+ls -al ./localfs_test_dir > /dev/null;
+
+cat /etc/shadow;
+ln -s /etc/shadow ./shadowlink;
+cat shadowlink;
+
+mv ./shadowlink ./shadowlink2;
+cat /etc/shadow;
+rm ./shadowlink2;
+cat /etc/shadow;
+
+ln /etc/shadow /etc/shadowhardlink;
+cat /etc/shadowhardlink;
+mv /etc/shadowhardlink /etc/shadowhardlink2;
+rm /etc/shadowhardlink2;
+cat /etc/shadow;
+
+echo "hmmmmmmmmmmmmmmmmmmm" > /etc/hmmm;
+rm /etc/hmmm;
+

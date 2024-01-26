@@ -1,0 +1,15 @@
+#It is the same format as normal fstab (man fstab)
+#
+# <device>            <mount point>	   <filesystem type>	<options>
+
+#mount /usr/bin to /usr/sbin
+/usr/bin 	     /usr/sbin             localfs
+
+#example of shfs usage
+#mount remote directory /home/jimi from server little.wing.art as user jimi 
+#to local directory /home/wood/net/
+
+jimi@little.wing.art:/home/jimi		/home/wood	shfs
+
+#you can use shfs on not default port
+jimi@little.wing.art:/home/jimi		/home/wood	shfs  	port=8765

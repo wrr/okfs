@@ -1,0 +1,6 @@
+set output "write.eps"
+set terminal postscript eps
+set xlabel "wielkosc bufora"
+set ylabel "czas zapisu [s]"
+plot 'write_okfs' title "OKFS" with points 4, 'write_linux' title "Linux" with points 1, 'write_okfs_localfs' title "OKFS LocalFS" with points 2
+

@@ -1,0 +1,6 @@
+set output "read_diff.eps"
+set terminal postscript eps
+set xlabel "wielkosc bufora"
+set ylabel "roznica czasow odczytu [s]"
+plot 'read_diff' title "czas OKFS - czas Linux"
+

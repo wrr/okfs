@@ -1,0 +1,150 @@
+Jan Wrobel <jan@mixedbit.org>
+This text explains how OKFS works and why it is useful. It was
+written for the IBM Linux Scholar Challenge in which OKFS was one of
+the 20 winner projects.
+
+Out of Kernel FileSystem
+
+I. Introduction
+	The goal of this project is to develop filesystem that works
+entirely at the user-level and can be installed and used without root
+privileges. What is more, this system should cooperate with all
+existing programs, without a need of changing their source code or
+recompiling them. OKFS is being created mainly to facilitate work on
+multiuser Linux servers.
+
+Available Linux filesystems can be divided into two groups:
+ -Filesystems that work at the kernel-level (fully or partially), they
+  cannot be used without root interaction.
+ -Filesystems that work fully at the user-level, but are accessible by
+  only one application and useless for other programs. As an example,
+  the Midnight Commander has such FS, one of its ability is to mount
+  FTP sites. 
+These filesystems do not offer enough flexibility for a wide range of
+users, I hope OKFS will be a solution for them.
+
+II. System architecture and implementation
+       Linux has a mechanism which makes implementation of OKFS
+possible without the need of changing anything in kernel source
+code. This mechanism is a ptrace system call, which was originally
+designed to simplify debugging. Ptrace enables tracing process to stop
+its traced process("tracee") when it enters or leaves any system call,
+it can then examine and change the tracee's registers and contents of its
+memory. This function is sufficient to implement transparent filesystem.
+
+OKFS is written in C language, I decided to split its implementation
+into three parts:
+
+1. OKFS kernel
+	Kernel is responsible for controlling operations that are not
+   related to the filesystem. Among other things, its job is to follow
+   tracee's fork calls and initiate tracing of newly created child. The
+   most complex task kernel is responsible for is to simulate real
+   Linux environment. Ptrace unfortunately changes behaviour of	the
+   traced process, so it is necessary to reverse these changes. For
+   example, SIGSTOP does not stop traced process, making job control
+   impossible. To solve this problem, OKFS simulates stopping of the
+   tracee, when it receives SIGSTOP, by replacing next instructions in 
+   its memory with pause system call. When tracee receives SIGCONT, the
+   original code is putted back to its memory and it continues
+   working. I tried to make OKFS kernel code separated from filesystem
+   code to make it useful for other programs that need to trace
+   processes.
+
+2. Virtual Filesystem 
+	This part of OKFS is responsible for handling all file related
+   operations that Linux implements. Its tasks are as follows:
+   -It recognises if system call is related to one of the filesystems
+    implemented by OKFS or by Linux kernel. If it is related to OKFS
+    filesystem, VFS collects arguments of system call from tracee's
+    memory and delegates this call to proper FS. Next, VFS copies
+    results of this call to tracee's memory.
+   -It hides the complexity of system calls from lower level
+    filesystems. For instance, Linux implements 6 slightly different 
+    stat functions, but filesystems have to implement only one of
+    them, because VFS maps its result to one excepted by calling
+    process.    
+   -It manages file descriptor operations (duplicating, closing).
+   -Caching. In network filesystems caching is very important to
+    minimize delay during file access. As for now OKFS caches content
+    of directories and informations about files. It does not yet cache
+    content of files.
+
+3. Filesystems
+	I try to develop OKFS in such a way that adding a new
+   filesystem would be as easy as possible. Such FS has to implement
+   only 21 filesystem-related functions, VFS takes care of all the
+   rest. OKFS is created not only to support network filesystems but
+   it can be used, for example, to develop a local cryptographic
+   filesystem or a filesystem to browse tar archives. 
+   Current version implements two filesystems:
+   -SHell FileSystem - this is a port of FS written by Zemljanka core
+    team[1], which originally works as a kernel module. This system
+    uses SSH connection and performs all operations by executing
+    programs at the server site and interpreting their results. It is
+    not the most effective approach but very flexible, it allows
+    mounting remote directory tree from almost every Unix machine.
+   -LocalFS - this filesystem does not do much, it just mounts one
+    local directory tree to another place (for example
+    /home/jwrobel/my_own_etc to /etc)[2].
+
+Let us see a simple example how OKFS works:
+-User configures OKFS to mount remote directory tree
+ jwrobel@student.uci.agh.edu.pl:/home/infgrp/jwrobel to local
+ directory /net  using SHFS.	    
+-OKFS starts working on Linux machine, executing shell as its tracee
+ process.
+-user executes program ls /net/foo.
+-program ls calls lstat("/net/foo", ...), normally this call would
+ fail because file /net/foo does not exist for Linux.
+-VFS part of OKFS recognises that SHFS is responsible for file
+ /net/foo and it delegates this call to this subsystem. 
+-SHFS calls lstat on remote file
+ jwrobel@student.uci.agh.edu.pl:/home/infgrp/jwrobel/foo and returns
+ result to VFS.
+-VFS puts received result to cache and copies it to ls program memory.
+-ls continues working.
+
+III. Limitations of OKFS
+	    Mechanism used by OKFS has weaknesses that cause the
+following limitations in its functionality:
+
+-Functions performed by OKFS cannot be interrupted. If program calls
+ function that takes a long time due to high network load, it cannot
+ receive signals and regain control before this function returns.
+-From the security reasons, a process running with different
+ privileges that user has (setuid programs) cannot be traced.
+-This mechanism is Linux-specific, OKFS is unportable to other
+ OSes. Current version works only on x86 architecture, but I think it
+ is possible to port it to different ones.
+-OKFS is dependent on the version of kernel it is running on, which
+ impedes work on the project.
+-OKFS is additional layer between program and kernel which decreases
+ efficiency of the program. On first sight, this is the most serious
+ limitation of the whole concept, but the tests I made show that
+ on modern computer delays introduced by OKFS are imperceptible. Below
+ are the results of a simple test, which consist of copying 10MB file,
+ and was  performed on the computer with Athlon 1.4GHz:
+ Copying file locally between Linux partitions: 
+	 outside OKFS: 1.05s, under OKFS: 1.15s.
+ Copying file to remote host through 712kb/s connection:
+	 outside OKFS using SHFS kernel module: 183s
+	 under OKFS using its port of SHFS implementation: 184s. 
+
+	I think that all weaknesses of OKFS will be balanced by
+substantial work facilitation it offers. OKFS has, besides its
+flexibility, one more great advantage comparing to kernel-level
+filesystems, namely, it is much more secure. Gaining control over the
+whole machine by exploiting vulnerability in OKFS is rather
+impossible, but it can be done with kernel-level or root-privileges
+systems.
+
+
+IV. References
+[1] (Secure) SHell FileSystem Linux kernel module
+    http://shfs.sourceforge.net/	
+[2] Idea of localFS comes from LUFS
+    http://lufs.sourceforge.net/lufs/
+[3] UFO - user level filesystem for Solaris 2.5
+    http://www.cs.ucsb.edu/projects/ufo/
+

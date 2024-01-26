@@ -1,0 +1,6 @@
+set output "cp.eps"
+set terminal postscript eps
+set xlabel "ilosc operacji"
+set ylabel "czas wykonania [s]"
+plot 'cp_okfs' title "OKFS", 'cp_linux' title "Linux", 'cp_okfs_localfs' title "OKFS LocalFS"
+

@@ -1,0 +1,6 @@
+set output "write_shfs.eps"
+set terminal postscript eps
+set xlabel "wielkosc bufora"
+set ylabel "czas odczytu [s]"
+plot 'write_okfs_shfs' title "OKFS SHFS", 'write_okfs_localfs_short' title "OKFS LocalFS"
+

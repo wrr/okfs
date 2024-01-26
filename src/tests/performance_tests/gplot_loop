@@ -1,0 +1,11 @@
+#set yrange [0.001:2.5]
+#set xrange [0.001:235]
+set output "loop.eps"
+set terminal postscript eps
+#set data style dots
+set xlabel "ilosc operacji"
+set ylabel "czas wykonania [s]"
+#set multiplot
+plot 'loop_okfs' title "OKFS", 'loop_linux' title "Linux"
+
+#, 'lab2_przepustowosc_raw' title 'brak kodowania' 

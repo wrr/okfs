@@ -1,0 +1,35 @@
+This is incomplete list of things to do in OKFS.
+
+Very important thing is to stabilise existing code, now OKFS often
+hangs or causes SIGSEGV in traced processes. 
+
+Most important features that should be added are:
+
+1.
+2.4.* kernels support. Only thing that doesn't work with 2.4.* and
+works with 2.6.* is  mapping between stat structures (e.x. stat <->
+stat64). It will be finished soon.
+
+2.
+threads support - OKFS should not modify any memory shared between
+threads, so it can only change tracee's stack memory.
+Idea how to do it:
+   Let's assume that tracee calls open("./some_file", ...) and OKFS
+   wants to change this call to open("/full/path/some_file", ...). 
+   To do it, it has to write string "/full/path/some_file" to
+   tracee's stack (of course, old content, of a part of stack it writes
+   to, has to be saved). Next, it has to change value in tracee's eax
+   register to point to this new string. After open() call all these
+   changes have to be reversed.
+
+3. Support for mapping files to memory with mmap() call.
+
+4. Add support for blocking file descriptors with fcntl().
+
+5. Make OKFS more proof to tracee's error. At the moment when
+   tracee for example calls open(buf, ...) and buf points outside
+   tracee's memory, OKFS will terminate trying to read this memory,
+   but it should return -EFAULT to the tracee.
+
+6. Programs to mount and umount at runtime.
+
